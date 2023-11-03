@@ -189,7 +189,53 @@ describe('cp', () => {
     expect(await fs.readFile(symlinkTargetPath, {encoding: 'utf8'})).toBe(
       'test file content'
     )
-  })
+  }),
+    it('dereferences and copies symlinks correctly', async () => {
+      // create the following layout
+      // sourceFolder
+      // sourceFolder/nested
+      // sourceFolder/nested/sourceFile
+      // sourceFolder/symlinkDirectory -> sourceFile
+      const root: string = path.join(getTestTemp(), 'cp_with_-rL_symlinks')
+      const sourceFolder: string = path.join(root, 'cp_source')
+      const nestedFolder: string = path.join(sourceFolder, 'nested')
+      const sourceFile: string = path.join(nestedFolder, 'cp_source_file')
+      const symlinkDirectory: string = path.join(
+        sourceFolder,
+        'symlinkDirectory'
+      )
+
+      const targetFolder: string = path.join(root, 'cp_target')
+      const targetFile: string = path.join(
+        targetFolder,
+        'nested',
+        'cp_source_file'
+      )
+      const symlinkTargetPath: string = path.join(
+        targetFolder,
+        'symlinkDirectory',
+        'cp_source_file'
+      )
+      await io.mkdirP(sourceFolder)
+      await io.mkdirP(nestedFolder)
+      await fs.writeFile(sourceFile, 'test file content', {encoding: 'utf8'})
+      await createSymlinkDir(nestedFolder, symlinkDirectory)
+      await io.cp(sourceFolder, targetFolder, {
+        recursive: true,
+        followSymlinks: true
+      })
+      expect(await fs.readFile(targetFile, {encoding: 'utf8'})).toBe(
+        'test file content'
+      )
+      expect(await fs.readFile(symlinkTargetPath, {encoding: 'utf8'})).toBe(
+        'test file content'
+      )
+      // remove the source folder
+      await io.rmRF(sourceFolder)
+      expect(await fs.readFile(symlinkTargetPath, {encoding: 'utf8'})).toBe(
+        'test file content'
+      )
+    })
 })
 
 describe('mv', () => {

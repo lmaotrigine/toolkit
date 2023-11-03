@@ -12,6 +12,7 @@ export interface CopyOptions {
   force?: boolean
   /** Optional. Whether to copy the source directory along with all the files. Only takes effect when recursive=true and copying a directory. Default is true*/
   copySourceDirectory?: boolean
+  followSymlinks?: boolean
 }
 
 /**
@@ -35,7 +36,8 @@ export async function cp(
   dest: string,
   options: CopyOptions = {}
 ): Promise<void> {
-  const {force, recursive, copySourceDirectory} = readCopyOptions(options)
+  const {force, recursive, copySourceDirectory, followSymlinks} =
+    readCopyOptions(options)
 
   const destStat = (await ioUtil.exists(dest)) ? await ioUtil.stat(dest) : null
   // Dest is an existing file, but not forcing
@@ -60,7 +62,7 @@ export async function cp(
         `Failed to copy. ${source} is a directory, but tried to copy without recursive flag.`
       )
     } else {
-      await cpDirRecursive(source, newDest, 0, force)
+      await cpDirRecursive(source, newDest, 0, force, followSymlinks)
     }
   } else {
     if (path.relative(source, newDest) === '') {
@@ -68,7 +70,7 @@ export async function cp(
       throw new Error(`'${newDest}' and '${source}' are the same file`)
     }
 
-    await copyFile(source, newDest, force)
+    await copyFile(source, newDest, force, followSymlinks)
   }
 }
 
@@ -260,14 +262,16 @@ function readCopyOptions(options: CopyOptions): Required<CopyOptions> {
     options.copySourceDirectory == null
       ? true
       : Boolean(options.copySourceDirectory)
-  return {force, recursive, copySourceDirectory}
+  const followSymlinks = Boolean(options.followSymlinks)
+  return {force, recursive, copySourceDirectory, followSymlinks}
 }
 
 async function cpDirRecursive(
   sourceDir: string,
   destDir: string,
   currentDepth: number,
-  force: boolean
+  force: boolean,
+  followSymlinks: boolean
 ): Promise<void> {
   // Ensure there is not a run away recursive copy
   if (currentDepth >= 255) return
@@ -284,9 +288,15 @@ async function cpDirRecursive(
 
     if (srcFileStat.isDirectory()) {
       // Recurse
-      await cpDirRecursive(srcFile, destFile, currentDepth, force)
+      await cpDirRecursive(
+        srcFile,
+        destFile,
+        currentDepth,
+        force,
+        followSymlinks
+      )
     } else {
-      await copyFile(srcFile, destFile, force)
+      await copyFile(srcFile, destFile, force, followSymlinks)
     }
   }
 
@@ -298,7 +308,8 @@ async function cpDirRecursive(
 async function copyFile(
   srcFile: string,
   destFile: string,
-  force: boolean
+  force: boolean,
+  followSymlinks: boolean
 ): Promise<void> {
   if ((await ioUtil.lstat(srcFile)).isSymbolicLink()) {
     // unlink/re-link it
@@ -316,6 +327,16 @@ async function copyFile(
 
     // Copy over symlink
     const symlinkFull: string = await ioUtil.readlink(srcFile)
+    if (followSymlinks) {
+      // recurse
+      if (await ioUtil.isDirectory(symlinkFull)) {
+        await cpDirRecursive(symlinkFull, destFile, 0, force, followSymlinks)
+        return
+      } else {
+        await copyFile(symlinkFull, destFile, force, followSymlinks)
+        return
+      }
+    }
     await ioUtil.symlink(
       symlinkFull,
       destFile,
